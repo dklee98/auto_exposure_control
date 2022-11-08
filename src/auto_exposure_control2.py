@@ -11,27 +11,35 @@ import numpy as np
 import cv2
 import sys
 import rospy
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, CompressedImage
+from std_msgs.msg import Float32
 from cv_bridge import CvBridge, CvBridgeError
 import dynamic_reconfigure.client
 
 # I term for PI controller
 err_i = 0
+exp_cur = 0
+pub_exposure=rospy.Publisher('/telicam/set_exposure', Float32, queue_size=3)
 
-def get_exposure(dyn_client):
-    values = dyn_client.get_configuration()
-    return values['exposure_value']
+# def get_exposure(dyn_client):
+#     values = dyn_client.get_configuration()
+#     return values['exposure_value']
 
-def set_exposure(dyn_client, exposure):
-    params = {'exposure_value' : exposure}
-    config = dyn_client.update_configuration(params)
+# def set_exposure(dyn_client, exposure):
+#     params = {'exposure_value' : exposure}
+#     config = dyn_client.update_configuration(params)
+
+def exp_callback(msg):
+    global exp_cur
+    exp_cur = msg.data
 
 def image_callback(image, args):
     global err_i
+    global exp_cur
+    global pub_exposure
     bridge = args['cv_bridge']
-    dyn_client = args['dyn_client']
-    cv_image = bridge.imgmsg_to_cv2(image,
-                                    desired_encoding = "bgr8")
+    # cv_image = bridge.imgmsg_to_cv2(image, desired_encoding = "bgr8")
+    cv_image = bridge.compressed_imgmsg_to_cv2(image, desired_encoding = "bgr8")
     
     (rows, cols, channels) = cv_image.shape
     if (channels == 3):
@@ -51,7 +59,7 @@ def image_callback(image, args):
         mean_sample_value += hist[i]*(i+1)
         
     mean_sample_value /= (rows*cols)
-    
+    print("MSV: {}".format(mean_sample_value))
     #focus_region = brightness_image[rows/2-10:rows/2+10, cols/2-10:cols/2+10]
     #brightness_value = numpy.mean(focus_region)
 
@@ -71,22 +79,29 @@ def image_callback(image, args):
     # Don't change exposure if we're close enough. Changing too often slows
     # down the data rate of the camera.
     if abs(err_p) > 0.5:
-        set_exposure(dyn_client, get_exposure(dyn_client)+k_p*err_p+k_i*err_i)
+        # set_exposure(dyn_client, get_exposure(dyn_client)+k_p*err_p+k_i*err_i)
+        output = exp_cur + k_p*err_p+k_i*err_i
+        pub_exposure.publish(output)
+        print("exposure: {}".format(output))
+    print("-----")
         
 def main(args):
     rospy.init_node('auto_exposure_control')
 
     bridge = CvBridge()
-    camera_name = rospy.get_param('~camera_name')
-    dyn_client = dynamic_reconfigure.client.Client(camera_name)
+    # camera_name = rospy.get_param('~camera_name')
+    # dyn_client = dynamic_reconfigure.client.Client(camera_name)
 
-    params = {'auto_exposure' : False}
-    config = dyn_client.update_configuration(params)
+    # params = {'auto_exposure' : False}
+    # config = dyn_client.update_configuration(params)
     
     args = {}
     args['cv_bridge'] = bridge
-    args['dyn_client'] = dyn_client
-    img_sub=rospy.Subscriber('image_raw', Image, image_callback, args)
+    # args['dyn_client'] = dyn_client
+    # img_sub=rospy.Subscriber('/camera/image_color', Image, image_callback, args)
+    img_sub=rospy.Subscriber('/teli_camera/image_raw/compressed', CompressedImage, image_callback, args)
+    exp_sub=rospy.Subscriber('/telicam/exposure', Float32, exp_callback)
+    
 
     rospy.spin()
     
