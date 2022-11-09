@@ -20,6 +20,7 @@ import dynamic_reconfigure.client
 err_i = 0
 exp_cur = 0
 pub_exposure=rospy.Publisher('/telicam/set_exposure', Float32, queue_size=3)
+output = 0
 
 # def get_exposure(dyn_client):
 #     values = dyn_client.get_configuration()
@@ -37,9 +38,13 @@ def image_callback(image, args):
     global err_i
     global exp_cur
     global pub_exposure
+    global output
     bridge = args['cv_bridge']
-    # cv_image = bridge.imgmsg_to_cv2(image, desired_encoding = "bgr8")
-    cv_image = bridge.compressed_imgmsg_to_cv2(image, desired_encoding = "bgr8")
+    # dyn_client = args['dyn_client']
+    # cv_image = bridge.imgmsg_to_cv2(image,
+                                    # desired_encoding = "bgr8")
+    cv_image = bridge.compressed_imgmsg_to_cv2(image,
+                                    desired_encoding = "bgr8")
     
     (rows, cols, channels) = cv_image.shape
     if (channels == 3):
@@ -67,8 +72,8 @@ def image_callback(image, args):
     # Note: You may need to retune the PI gains if you change this
     desired_msv = 2.5
     # Gains
-    k_p = 0.05
-    k_i = 0.01
+    k_p = 0.05 # 0.05
+    k_i = 0.01 # 0.01
     # Maximum integral value
     max_i = 3
     err_p = desired_msv-mean_sample_value
@@ -80,9 +85,13 @@ def image_callback(image, args):
     # down the data rate of the camera.
     if abs(err_p) > 0.5:
         # set_exposure(dyn_client, get_exposure(dyn_client)+k_p*err_p+k_i*err_i)
-        output = exp_cur + k_p*err_p+k_i*err_i
+        output = exp_cur + (k_p*err_p+k_i*err_i) * 1000
+        if output < 18.0:
+            output = 18
+        elif output > 160000.0:
+            output = 160000.0
         pub_exposure.publish(output)
-        print("exposure: {}".format(output))
+    print("change exposure: {}".format(output))
     print("-----")
         
 def main(args):
